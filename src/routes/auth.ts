@@ -11,16 +11,28 @@ const phoneSchema = z.object({
 });
 
 router.post('/otp/request', async (req, res) => {
-  const parse = phoneSchema.safeParse(req.body);
-  if (!parse.success) return res.status(400).json({ error: 'Invalid phone' });
-  const { phone } = parse.data;
-  // MVP: create user if not exists, issue fake OTP (bypass)
-  let user = await prisma.user.findUnique({ where: { phone } });
-  if (!user) {
-    user = await prisma.user.create({ data: { phone, phoneVerified: false } });
+  try {
+    const schema = z.object({ phone: z.string().min(6) });
+    const parse = schema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+
+    const { phone } = parse.data;
+
+    // In dev: always accept, no SMS needed
+    await prisma.user.upsert({
+      where: { phone },
+      update: {},
+      create: { phone }
+    });
+
+    // Return hint for dev OTP
+    return res.json({ ok: true, otpHint: `Use ${OTP_BYPASS}` });
+  } catch (err: any) {
+    console.error('OTP request error:', err?.message || err);
+    return res.status(500).json({ error: 'Server error' });
   }
-  // In real app: send SMS; here we return OTP_BYPASS for local testing
-  return res.json({ ok: true, otpHint: OTP_BYPASS === '0000' ? 'Use 0000 in dev' : 'Set OTP in env' });
 });
 
 router.post('/otp/verify', async (req, res) => {
